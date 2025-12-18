@@ -53,7 +53,7 @@ Expected output: **Python 3.10.x**
 
 ### 5. Start Coding 🚀  
 
-From here, start with [the workshop](./1_microsoft-foundry).
+From here, start with [the workshop](./1_microsoft-foundry.md).
 
 
 ## Recap  
