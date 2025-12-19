@@ -1,8 +1,14 @@
 import os
+import time
+from typing import Any
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
-from azure.ai.agents.models import MessageRole, FilePurpose, FunctionTool, FileSearchTool, ToolSet
+from azure.ai.agents.models import (
+    MessageRole, FilePurpose, FunctionTool, FileSearchTool, ToolSet,
+    McpTool, ToolApproval, ThreadRun, RequiredMcpToolCall, RunHandler
+)
 from dotenv import load_dotenv
+from tools import calculate_pizza_for_people
 
 load_dotenv(override=True)
 
@@ -15,9 +21,49 @@ project_client = AIProjectClient(
 vector_store_id = "vs_hCdBuIqvgB1vWT9ineq6Uqk2"
 file_search = FileSearchTool(vector_store_ids=[vector_store_id])
 
+# Create the Function tool
+function_tool = FunctionTool(functions={calculate_pizza_for_people})
+
 # Create the toolset
 toolset = ToolSet()
 toolset.add(file_search)
+toolset.add(function_tool)
+
+# Add MCP tool so the agent can call Contoso Pizza microservices
+mcp_tool = McpTool(
+    server_label="contoso_pizza",
+    server_url="https://ca-pizza-mcp-sc6u2typoxngc.graypond-9d6dd29c.eastus2.azurecontainerapps.io/sse",
+    allowed_tools=[
+        "get_pizzas",
+        "get_pizza_by_id",
+        "get_toppings",
+        "get_topping_by_id",
+        "get_topping_categories",
+        "get_orders",
+        "get_order_by_id",
+        "place_order",
+        "delete_order_by_id",
+    ],
+)
+mcp_tool.set_approval_mode("never")
+toolset.add(mcp_tool)
+
+# Enable automatic function calling for this toolset so that the agent can use it without explicit user requests
+project_client.agents.enable_auto_function_calls(toolset)
+
+
+# Custom RunHandler to approve MCP tool calls
+class MyRunHandler(RunHandler):
+    def submit_mcp_tool_approval(
+        self, *, run: ThreadRun, tool_call: RequiredMcpToolCall, **kwargs: Any
+    ) -> ToolApproval:
+        print(
+            f"[RunHandler] Approving MCP tool call: {tool_call.id} for tool: {tool_call.name}")
+        return ToolApproval(
+            tool_call_id=tool_call.id,
+            approve=True,
+            headers=mcp_tool.headers,
+        )
 
 # Create the agent with the toolset
 agent = project_client.agents.create_agent(
@@ -48,35 +94,19 @@ try:
             role=MessageRole.USER,
             content=user_input
         )
-        print(f"[DEBUG] Created message, ID: {message.id}")
 
         # Process the agent run
         run = project_client.agents.runs.create_and_process(
             thread_id=thread.id,
-            agent_id=agent.id
+            agent_id=agent.id,
+            run_handler=MyRunHandler()  # Enables controlled MCP tool call approvals
         )
-        print(f"[DEBUG] Run completed, status: {run.status}")
-        if run.last_error:
-            print(f"[DEBUG] Run error: {run.last_error}")
 
         # List messages and print the first text response from the agent
         messages = project_client.agents.messages.list(thread_id=thread.id)
-        print(f"[DEBUG] Retrieved {len(list(messages))} messages")
-
-        # Re-fetch messages since we consumed the iterator
-        messages = project_client.agents.messages.list(thread_id=thread.id)
-        for msg in messages:
-            print(
-                f"[DEBUG] Message role: {msg.role}, content types: {[item.get('type') for item in msg.content]}")
-
-        messages = project_client.agents.messages.list(thread_id=thread.id)
         assistant_message = next(
             (msg for msg in messages if msg.role == MessageRole.AGENT), None)
-        print(
-            f"[DEBUG] Found assistant message: {assistant_message is not None}")
         if assistant_message:
-            print(
-                f"[DEBUG] Assistant message content: {assistant_message.content}")
             print(next((item["text"]["value"] for item in assistant_message.content if item.get(
                 "type") == "text"), ""))
 finally:
