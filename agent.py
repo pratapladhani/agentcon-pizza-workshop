@@ -1,12 +1,11 @@
+import json
 import os
-import time
-from typing import Any
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
-from azure.ai.agents.models import (
-    MessageRole, FilePurpose, FunctionTool, FileSearchTool, ToolSet,
-    McpTool, ToolApproval, ThreadRun, RequiredMcpToolCall, RunHandler
+from azure.ai.projects.models import (
+    PromptAgentDefinition, FileSearchTool, FunctionTool, MCPTool, Tool
 )
+from openai.types.responses.response_input_param import FunctionCallOutput, ResponseInputParam
 from dotenv import load_dotenv
 from tools import calculate_pizza_for_people
 
@@ -16,68 +15,58 @@ project_client = AIProjectClient(
     endpoint=os.environ["PROJECT_CONNECTION_STRING"],
     credential=DefaultAzureCredential()
 )
+openai_client = project_client.get_openai_client()
 
 # Create the File Search tool
 vector_store_id = "vs_hCdBuIqvgB1vWT9ineq6Uqk2"
 file_search = FileSearchTool(vector_store_ids=[vector_store_id])
 
 # Create the Function tool
-function_tool = FunctionTool(functions={calculate_pizza_for_people})
-
-# Create the toolset
-toolset = ToolSet()
-toolset.add(file_search)
-toolset.add(function_tool)
+func_tool = FunctionTool(
+    name="calculate_pizza_for_people",
+    parameters={
+        "type": "object",
+        "properties": {
+            "people": {
+                "type": "integer",
+                "description": "The number of people to order pizza for",
+            },
+        },
+        "required": ["people"],
+        "additionalProperties": False,
+    },
+    description="Calculate the number of pizzas to order based on the number of people.",
+    strict=True,
+)
 
 # Add MCP tool so the agent can call Contoso Pizza microservices
-mcp_tool = McpTool(
+mcp_tool = MCPTool(
     server_label="contoso_pizza",
     server_url="https://ca-pizza-mcp-sc6u2typoxngc.graypond-9d6dd29c.eastus2.azurecontainerapps.io/sse",
-    allowed_tools=[
-        "get_pizzas",
-        "get_pizza_by_id",
-        "get_toppings",
-        "get_topping_by_id",
-        "get_topping_categories",
-        "get_orders",
-        "get_order_by_id",
-        "place_order",
-        "delete_order_by_id",
-    ],
+    require_approval="never"
 )
-mcp_tool.set_approval_mode("never")
-toolset.add(mcp_tool)
 
-# Enable automatic function calling for this toolset so that the agent can use it without explicit user requests
-project_client.agents.enable_auto_function_calls(toolset)
+# Define the toolset for the agent
+toolset: list[Tool] = []
+toolset.append(file_search)
+toolset.append(func_tool)
+toolset.append(mcp_tool)
 
-
-# Custom RunHandler to approve MCP tool calls
-class MyRunHandler(RunHandler):
-    def submit_mcp_tool_approval(
-        self, *, run: ThreadRun, tool_call: RequiredMcpToolCall, **kwargs: Any
-    ) -> ToolApproval:
-        print(
-            f"[RunHandler] Approving MCP tool call: {tool_call.id} for tool: {tool_call.name}")
-        return ToolApproval(
-            tool_call_id=tool_call.id,
-            approve=True,
-            headers=mcp_tool.headers,
-        )
-
-# Create the agent with the toolset
-agent = project_client.agents.create_agent(
-    model="gpt-4o",
-    name="my-agent",
-    instructions=open("instructions.txt").read(),
-    top_p=0.7,
-    temperature=0.7,
-    toolset=toolset  # Add the toolset to the agent
+# Create a Foundry Agent
+agent = project_client.agents.create_version(
+    agent_name="contoso-pizza-agent",
+    definition=PromptAgentDefinition(
+        model=os.environ["MODEL_DEPLOYMENT_NAME"],
+        instructions=open("instructions.txt").read(),
+        tools=toolset,
+    ),
 )
-print(f"Created agent, ID: {agent.id}")
+print(
+    f"Agent created (id: {agent.id}, name: {agent.name}, version: {agent.version})")
 
-thread = project_client.agents.threads.create()
-print(f"Created thread, ID: {thread.id}")
+# Create a conversation for the agent interaction
+conversation = openai_client.conversations.create()
+print(f"Created conversation (id: {conversation.id})")
 
 try:
     while True:
@@ -88,28 +77,40 @@ try:
         if user_input.lower() in ["exit", "quit"]:
             break
 
-        # Add a message to the thread
-        message = project_client.agents.messages.create(
-            thread_id=thread.id,
-            role=MessageRole.USER,
-            content=user_input
+        # Get the agent response
+        response = openai_client.responses.create(
+            conversation=conversation.id,
+            input=user_input,
+            extra_body={"agent": {"name": agent.name,
+                                  "type": "agent_reference"}},
         )
 
-        # Process the agent run
-        run = project_client.agents.runs.create_and_process(
-            thread_id=thread.id,
-            agent_id=agent.id,
-            run_handler=MyRunHandler()  # Enables controlled MCP tool call approvals
-        )
+        # Handle function calls in the response
+        input_list: ResponseInputParam = []
+        for item in response.output:
+            if item.type == "function_call":
+                if item.name == "calculate_pizza_for_people":
+                    # Execute the function logic
+                    result = calculate_pizza_for_people(
+                        **json.loads(item.arguments))
+                    # Provide function call results to the model
+                    input_list.append(
+                        FunctionCallOutput(
+                            type="function_call_output",
+                            call_id=item.call_id,
+                            output=json.dumps({"result": result}),
+                        )
+                    )
 
-        # List messages and print the first text response from the agent
-        messages = project_client.agents.messages.list(thread_id=thread.id)
-        assistant_message = next(
-            (msg for msg in messages if msg.role == MessageRole.AGENT), None)
-        if assistant_message:
-            print(next((item["text"]["value"] for item in assistant_message.content if item.get(
-                "type") == "text"), ""))
+        if input_list:
+            response = openai_client.responses.create(
+                previous_response_id=response.id,
+                input=input_list,
+                extra_body={"agent": {"name": agent.name,
+                                      "type": "agent_reference"}},
+            )
+
+        # Print the agent response
+        print(f"Assistant: {response.output_text}")
 finally:
-    # Clean up the agent when done
-    project_client.agents.delete_agent(agent.id)
-    print("Deleted agent")
+    print("\nExiting...")
