@@ -1,7 +1,7 @@
 # Adding Agent Instructions  
 
 In the previous chapter, you created your first basic agent and started a conversation with it.  
-Now, we’ll take a step further by learning about **system prompts** and why they’re essential for shaping your agent’s behavior.  
+Now, we'll take a step further by learning about **system prompts** and why they're essential for shaping your agent's behavior.  
 
 
 ## What Is a System Prompt?  
@@ -14,23 +14,25 @@ Without a system prompt, your agent may respond in a generic way. By adding clea
 ### System prompts:  
 
 - Ensure the agent stays **consistent** across conversations  
-- Help guide the agent’s **tone and role** (e.g., friendly teacher, strict code reviewer, technical support bot)  
+- Help guide the agent's **tone and role** (e.g., friendly teacher, strict code reviewer, technical support bot)  
 - Reduce the risk of the agent giving **irrelevant or off-topic answers**  
 - Allow you to **encode rules** the agent must follow (e.g., "always answer in JSON")  
 
 
 ## Adding Instructions to Your Agent  
 
-When creating an agent, you can pass the `instructions` parameter.  
-Here’s an example:  
+When creating an agent, you can pass the `instructions` parameter in the `PromptAgentDefinition`.  
+Here's an example:  
 
 ```python
-agent = project_client.agents.create_agent(
-    model="gpt-4o",
-    name="my-agent",
-    instructions="You are a helpful support assistant for Microsoft Foundry. Always provide concise, step-by-step answers."
+agent = project_client.agents.create_version(
+    agent_name="hello-world-agent",
+    definition=PromptAgentDefinition(
+        model=os.environ["MODEL_DEPLOYMENT_NAME"],
+        instructions="You are a helpful support assistant for Microsoft Foundry. Always provide concise, step-by-step answers.",
+    ),
 )
-print(f"Created agent with system prompt, ID: {agent.id}")
+print(f"Agent created (id: {agent.id}, name: {agent.name}, version: {agent.version})")
 ```
 
 Now, every time the agent processes a conversation, it will try to follow your **system instructions**.  
@@ -38,7 +40,7 @@ Now, every time the agent processes a conversation, it will try to follow your *
 
 ## Using an External Instructions File  
 
-Instead of hardcoding instructions in your Python script, it’s often better to store them in a **separate text file**.  
+Instead of hardcoding instructions in your Python script, it's often better to store them in a **separate text file**.  
 This makes them easier to edit and maintain.  
 
 First, create a file called **`instructions.txt`** in the workshop folder with the following content:  
@@ -83,34 +85,34 @@ When customers ask about how much pizza they need for a group, use the pizza cal
 
 ## Modifying the Agent Code  
 
-Now, update your `agent.py` to load these instructions and set generation parameters (`top_p` and `temperature`):  
+Now, update your `agent.py` to load these instructions:  
 
 Find the code 
 
-```
-agent = project_client.agents.create_agent(
-    model="gpt-4o",
-    name="my-agent"
+```python
+agent = project_client.agents.create_version(
+    agent_name="hello-world-agent",
+    definition=PromptAgentDefinition(
+        model=os.environ["MODEL_DEPLOYMENT_NAME"],
+    ),
 )
-print(f"Created agent, ID: {agent.id}")
 ```
 
 Replace this code with 
 
 ```python
-agent = project_client.agents.create_agent(
-    model="gpt-4o",
-    name="pizza-bot",
-    instructions=open("instructions.txt").read(),
-    top_p=0.7,
-    temperature=0.7,
+agent = project_client.agents.create_version(
+    agent_name="hello-world-agent",
+    definition=PromptAgentDefinition(
+        model=os.environ["MODEL_DEPLOYMENT_NAME"],
+        instructions=open("instructions.txt").read(),
+    ),
 )
-print(f"Created agent with system prompt, ID: {agent.id}")
+print(f"Agent created (id: {agent.id}, name: {agent.name}, version: {agent.version})")
 ```
 
 By doing this:  
 - The agent will **follow the PizzaBot instructions** from your `instructions.txt`.  
-- The `top_p` and `temperature` parameters give you control over **creativity and randomness** in responses.  
 
 
 ## Run the Agent  
@@ -121,7 +123,7 @@ Try out the Agent:
 python agent.py
 ```
 
-Try modifying your `instructions.txt` and rerun the agent. You’ll see how the system instructions directly influence the personality and behavior of the agent.  
+Try modifying your `instructions.txt` and rerun the agent. You'll see how the system instructions directly influence the personality and behavior of the agent.  
 
 You can now chat with your agent directly in the terminal. Type `exit` or `quit` to stop the conversation.  
 
@@ -134,7 +136,6 @@ In this chapter, you have:
 - Understood why adding **instructions** is important  
 - Created an agent with a **custom system prompt**  
 - Used an **external instructions file (`instructions.txt`)**  
-- Experimented with **generation settings** (`top_p` and `temperature`)  
 
 
 

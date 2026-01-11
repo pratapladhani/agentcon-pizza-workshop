@@ -1,10 +1,12 @@
 # Microsoft Foundry Agent Workshop 🚀  
 
+**English** | **[Español](readme.es.md)** | **[Português](readme.pt.md)**
+
 ![](./docs/public/banner.png)
 
 ## Workshop Overview  
 
-In this hands-on session, you’ll learn how to build intelligent, domain-specific AI agents using **Microsoft Foundry Agent Service**.  
+In this hands-on session, you'll learn how to build intelligent, domain-specific AI agents using **Foundry Agent Service**.
 We’ll go step by step—from creating a basic agent to extending it with custom tools, external data, and live integrations.  
 
 By the end of the workshop, you’ll have built your own **Contoso PizzaBot**, an AI assistant capable of:  
@@ -39,8 +41,8 @@ By the end of the workshop, you’ll have built your own **Contoso PizzaBot**, a
 ## What You’ll Need  
 
 - A browser and access to the [Azure Portal](https://portal.azure.com)  
-- An [Azure subscription](docs/get-azure.md) provided or use your own
-- A [development environment](docs/dev-environment.md) with Python 3.10+ installed  
+- An [Azure subscription](docs/get-azure) provided or use your own
+- A [developement environment](docs/dev-environment) with Python 3.13+ installed  
 - Familiarity with Python basics (no deep AI background required!)  
 
 ## Workshop Goal  

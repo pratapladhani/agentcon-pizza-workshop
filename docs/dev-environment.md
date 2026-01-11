@@ -3,7 +3,7 @@
 To build and run the PizzaBot agent during this workshop, you’ll use a pre-configured **GitHub Codespaces** development environment.  
 
 This setup ensures:  
-- Python **3.10** is ready to go  
+- Python **3.13** is ready to go  
 - All required dependencies are pre-installed  
 - GitHub Copilot is enabled  
 - You can start coding right away in a consistent environment  
@@ -25,12 +25,10 @@ This creates your own copy of the workshop repo.
 
 GitHub will now start a new Codespace using the provided **devcontainer configuration**.  
 This will:  
-- Build a container with Python 3.10  
-- Create a virtual environment (`.venv`)  
+- Build a container with Python 3.13  
 - Install all dependencies from `requirements.txt`  
 
 This step can take a few minutes the first time.  
-
 
 ### 3. Open the Workshop Directory  
 When your Codespace starts, make sure you’re working inside the `workshop/` directory:  

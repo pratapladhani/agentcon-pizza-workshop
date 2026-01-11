@@ -1,69 +1,78 @@
 import os
-from azure.ai.projects import AIProjectClient
-from azure.identity import DefaultAzureCredential
-from azure.ai.agents.models import MessageRole, FilePurpose, FunctionTool, FileSearchTool, ToolSet
+import glob
 from dotenv import load_dotenv
+from azure.identity import DefaultAzureCredential
+from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import PromptAgentDefinition, FileSearchTool, Tool
 
-load_dotenv(override=True)
+load_dotenv()
 
-# Creating the AIProjectClient
+vector_store_id = ""  # Set to your vector store ID if you already have one
+
+## Configure Project Client
 project_client = AIProjectClient(
-    endpoint=os.environ["PROJECT_CONNECTION_STRING"],
-    credential=DefaultAzureCredential()
+    endpoint=os.environ["PROJECT_ENDPOINT"],
+    credential=DefaultAzureCredential(),
 )
+openai_client = project_client.get_openai_client()
 
-# Create the file_search tool
-vector_store_id = "<INSERT COPIED VECTOR STORE ID>"
-file_search = FileSearchTool(vector_store_ids=[vector_store_id])
 
-# Creating the toolset
-toolset = ToolSet()
-toolset.add(file_search)
+## -- FILE SEARCH -- ##
 
-# Creating the agent
-agent = project_client.agents.create_agent(
-    model="gpt-4o",
-    name="my-agent",
-    instructions=open("instructions.txt").read(),
-    top_p=0.7,
-    temperature=0.7,
-    toolset=toolset  # Add the toolset to the agent
+if vector_store_id:
+    vector_store = openai_client.vector_stores.retrieve(vector_store_id)
+    print(f"Using existing vector store (id: {vector_store.id})")
+else:
+    # Create vector store for file search
+    vector_store = openai_client.vector_stores.create(name="ContosoPizzaStores")
+    print(f"Vector store created (id: {vector_store.id})")
+
+    # Upload file to vector store
+    for file_path in glob.glob("documents/*.md"):
+        file = openai_client.vector_stores.files.upload_and_poll(
+            vector_store_id=vector_store.id, file=open(file_path, "rb")
+        )
+        print(f"File uploaded to vector store (id: {file.id})")
+## -- FILE SEARCH -- ##
+
+
+## Define the toolset for the agent
+toolset: list[Tool] = []
+toolset.append(FileSearchTool(vector_store_ids=[vector_store.id]))
+
+
+## Create a Foundry Agent
+agent = project_client.agents.create_version(
+    agent_name="hello-world-agent",
+    definition=PromptAgentDefinition(
+        model=os.environ["MODEL_DEPLOYMENT_NAME"],
+        instructions=open("instructions.txt").read(),
+        tools=toolset,
+    ),
 )
-print(f"Created agent, ID: {agent.id}")
+print(f"Agent created (id: {agent.id}, name: {agent.name}, version: {agent.version})")
 
-# Creating the thread
-thread = project_client.agents.threads.create()
-print(f"Created thread, ID: {thread.id}")
 
-try:
-    while True:
-        # Get the user input
-        user_input = input("You: ")
+## Create a conversation for the agent interaction
+conversation = openai_client.conversations.create()
+print(f"Created conversation (id: {conversation.id})")
 
-        # Break out of the loop
-        if user_input.lower() in ["exit", "quit"]:
-            break
+## Chat with the agent
 
-        # Add a message to the thread
-        message = project_client.agents.messages.create(
-            thread_id=thread.id,
-            role=MessageRole.USER,
-            content=user_input
-        )
+while True:
+    # Get the user input
+    user_input = input("You: ")
 
-        # Process the agent run
-        run = project_client.agents.runs.create_and_process(
-            thread_id=thread.id,
-            agent_id=agent.id
-        )
+    if user_input.lower() in ["exit", "quit"]:
+        print("Exiting the chat.")
+        break
 
-        # List messages and print the first text response from the agent
-        messages = project_client.agents.messages.list(thread_id=thread.id)
-        first_message = next(iter(messages), None)
-        if first_message:
-            print(next((item["text"]["value"] for item in first_message.content if item.get("type") == "text"), "")) 
+    # Get the agent response
+    response = openai_client.responses.create(
+        conversation=conversation.id,
+        input=user_input,
+        extra_body={"agent": {"name": agent.name, "type": "agent_reference"}},
+    )
 
-finally:
-    # Clean up the agent when done
-    project_client.agents.delete_agent(agent.id)
-    print("Deleted agent")
+    # Print the agent response
+    print(f"Assistant: {response.output_text}")
